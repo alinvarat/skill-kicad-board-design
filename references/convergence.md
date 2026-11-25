@@ -13,7 +13,7 @@ Never change a frozen item yourself (for example, trying a 4-layer stackup when 
 
 ## 2. Feasibility budget before placement
 Do these quick calculations and write the results into the brief. If one fails, present the user one decision with your recommendation (shrink feature set, more layers, other package, larger board, other assembly split) before placing parts.
-1. **Area**: per side, sum of courtyard areas plus an escape margin (fine-pitch IC: perimeter × 0.6 mm or more; others: 0.25 mm around). Compare with usable area (outline minus keepouts, connector envelopes, mounting hardware, antenna keepout). Above about 60 % on a 2-layer board, or about 75 % on 4 layers, expect routing to fail.
+1. **Area**: per side, sum of courtyard areas plus an escape margin (fine-pitch IC: perimeter × 0.6 mm or more; others: 0.25 mm around). Compare with usable area (outline minus keepouts, connector envelopes, mounting hardware, antenna keepout). Treat about 60 % on a 2-layer board or 75 % on 4 layers as a warning, not a pass line (unverified rule of thumb; a 2-layer motor board with one side mostly power copper already failed at 57 %). Count the side carrying power pours as only partly available for signals.
 2. **Current paths**: for each high-current path, required copper width (IPC-2152 or IPC-2221, stated ΔT and copper weight, layers sharing current) against the narrowest real corridor, including connector pad pitch, the gaps between pads and the via field. A path that cannot fit is a spec conflict, not a routing problem.
 3. **Escape**: for each QFN/BGA/fine-pitch connector, count nets that must leave each side and the channels available at the chosen track/clearance/via sizes.
 4. **Layer decision**: if 1–3 are tight, compare layer counts now. Check the live fab price and rules, never prices from memory.
@@ -26,13 +26,18 @@ Keep `STATUS.md` in the project root. Put the SHA-256 of the main `.kicad_pcb` a
 2. **Every attempt must improve the metric or be reverted.** Write the before/after numbers into `STATUS.md`. Do not keep side variants alive.
 3. **Fixed order.** Route and lock: (a) power and return copper with planes/pours, (b) switching hot loops, gate-drive and bootstrap loops, (c) decoupling, (d) USB/fast/sensitive nets, (e) remaining slow signals. An autorouter only gets (e), with (a)–(d) locked; re-add any locked copper that an SES import deleted.
 4. **Stop-loss.** After two routing strategies stall (no metric improvement), do not write another router, placer or autorouter variant. Choose one: close the remaining items per net (§5), move or rotate the specific blocking parts, or bring one constraint decision to the user (§2).
-5. **Router output acceptance.** A router pass counts only when its tracks are at or above the fab minimum width, have no dangling vias, and the refilled zones still reach every thermal pad. Otherwise the pass is rejected, not "nearly done".
+5. **Autorouter setup checks before each run** (Specctra DSN / Freerouting):
+   - Rip up by an explicit net list. Keep power, ground and their vias; count vias per net before and after the rip-up and stop if a power/GND count changed.
+   - Remove ground/power pour planes and the ground net from the DSN copy. Pours exported as full-board planes block routing; re-pour after import.
+   - Mark all kept copper as fixed (`(type fix)`), add an edge keepout ring at the fab copper-to-edge distance, and use the via size of the real stackup.
+   - After importing the SES, re-add any kept copper the import deleted, refill zones, then run a fresh DRC.
+6. **Router output acceptance.** A router pass counts only when its tracks are at or above the fab minimum width, have no dangling vias, and the refilled zones still reach every thermal pad. Otherwise the pass is rejected, not "nearly done".
 
 ## 5. Closing the last unconnected items
 Work through the fresh DRC unconnected list grouped by net:
 1. **Power/GND fragments**: a pour island or stub that does not reach its plane needs a via to the plane layer next to the pad, a widened neck, or a zone priority/clearance change. Check after refill that it is gone.
 2. **Signal near a dense IC**: crop the search to the smallest box holding both endpoints and the real blockers; add a via on the escape side; use an inner layer; route under a 0603/0805 body; use an existing series resistor or a 0 Ω jumper as a bridge (signals only, rating checked); swap pins/functions only where the datasheet and firmware allow it, and update the schematic.
-3. **Long cross-board signal**: assign it a dedicated inner-layer channel instead of weaving on outer layers.
+3. **Long cross-board signal**: assign it a dedicated channel instead of weaving: an inner layer on multilayer boards; on 2 layers, a reserved strip on the side with less power copper (for example between connector rows), crossing to the other side only with short hops.
 4. After each net: refill, DRC, confirm the count fell and nothing new appeared. When an item truly cannot close, list it with the reason and the exact decision needed.
 
 ## 6. Session hand-off
